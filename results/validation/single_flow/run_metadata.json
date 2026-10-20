@@ -1,0 +1,21 @@
+{
+  "ns3_version": "3.48",
+  "simulation_duration_s": 20.000000,
+  "application_start_s": 1.000000,
+  "application_stop_s": 19.000000,
+  "sink_start_s": 0.500000,
+  "flow_count": 1,
+  "random_seed": 1,
+  "run_number": 1,
+  "tcp_variant": "ns3::TcpNewReno",
+  "bottleneck_data_rate": "5Mbps",
+  "bottleneck_delay": "10ms",
+  "queue_limit_packets": 100,
+  "measurement_interval_s": 0.100000,
+  "output_directory": "/home/harsha/Projects/FlowStar/results/validation/single_flow",
+  "flow_monitor_layer": "IPv4",
+  "throughput_timestamp": "interval_end",
+  "fairness_index": 1.000000,
+  "fairness_definition": "application bytes received divided by common sender interval",
+  "run_identifier": "baseline"
+}

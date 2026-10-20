@@ -1,0 +1,251 @@
+{
+  "scenarios": [
+    {
+      "scenario": "single_flow",
+      "configuration": {
+        "activeFlows": 1
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 1,
+      "observed_active_flows": [
+        "flow1"
+      ],
+      "application_bytes_received": {
+        "flow1": 10278000
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 10278000 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 1 TCP senders.\n"
+    },
+    {
+      "scenario": "three_flows",
+      "configuration": {
+        "activeFlows": 3
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 3076000,
+        "flow2": 4459000,
+        "flow3": 2985384
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 3076000 application bytes.\nBasic validation: flow 2 received 4459000 application bytes.\nBasic validation: flow 3 received 2985384 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    },
+    {
+      "scenario": "higher_capacity",
+      "configuration": {
+        "activeFlows": 3,
+        "bottleneckDataRate": "10Mbps"
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 6436000,
+        "flow2": 7152000,
+        "flow3": 7152000
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 6436000 application bytes.\nBasic validation: flow 2 received 7152000 application bytes.\nBasic validation: flow 3 received 7152000 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    },
+    {
+      "scenario": "lower_capacity",
+      "configuration": {
+        "activeFlows": 3,
+        "bottleneckDataRate": "1Mbps"
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 728424,
+        "flow2": 782024,
+        "flow3": 641592
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 728424 application bytes.\nBasic validation: flow 2 received 782024 application bytes.\nBasic validation: flow 3 received 641592 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    },
+    {
+      "scenario": "higher_demand",
+      "configuration": {
+        "activeFlows": 3,
+        "packetSize": 1400
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 3031000,
+        "flow2": 4383400,
+        "flow3": 3127600
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 3031000 application bytes.\nBasic validation: flow 2 received 4383400 application bytes.\nBasic validation: flow 3 received 3127600 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    },
+    {
+      "scenario": "repeated_baseline_1",
+      "configuration": {
+        "activeFlows": 3,
+        "runNumber": 1
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 3076000,
+        "flow2": 4459000,
+        "flow3": 2985384
+      },
+      "checks_passed": 11,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 3076000 application bytes.\nBasic validation: flow 2 received 4459000 application bytes.\nBasic validation: flow 3 received 2985384 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    },
+    {
+      "scenario": "repeated_baseline_2",
+      "configuration": {
+        "activeFlows": 3,
+        "runNumber": 1
+      },
+      "simulation_exit_status": 0,
+      "expected_active_flows": 3,
+      "observed_active_flows": [
+        "flow1",
+        "flow2",
+        "flow3"
+      ],
+      "application_bytes_received": {
+        "flow1": 3076000,
+        "flow2": 4459000,
+        "flow3": 2985384
+      },
+      "checks_passed": 12,
+      "checks_failed": 0,
+      "passed_checks": [
+        "valid header: flow_statistics.csv",
+        "valid header: throughput_timeseries.csv",
+        "valid header: queue_timeseries.csv",
+        "valid header: packet_drops.csv",
+        "metadata flow_count matches scenario",
+        "flow statistics contain exactly the active flows",
+        "flow counters and delay fields are valid",
+        "throughput intervals and cumulative counters are consistent",
+        "queue occupancy uses valid identifiers and limits",
+        "packet drop records, if present, use actual queue schema",
+        "fairness matches independently recomputed value",
+        "same-seed metadata, flow records, timestamps, and output shapes are identical"
+      ],
+      "failed_checks": [],
+      "simulation_output_tail": "Basic validation: flow 1 received 3076000 application bytes.\nBasic validation: flow 2 received 4459000 application bytes.\nBasic validation: flow 3 received 2985384 application bytes.\nTopology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.\n"
+    }
+  ]
+}
