@@ -50,13 +50,15 @@ class MeasurementCollector
                          const std::vector<std::string>& flowIds,
                          const std::vector<Ptr<Queue<Packet>>>& bottleneckQueues,
                          double simulationDurationSeconds,
-                         double samplingIntervalSeconds)
+                         double samplingIntervalSeconds,
+                         uint32_t queueLimitPackets)
         : m_outputDirectory(outputDirectory),
           m_packetSinks(packetSinks),
           m_flowIds(flowIds),
           m_bottleneckQueues(bottleneckQueues),
           m_simulationDurationSeconds(simulationDurationSeconds),
           m_samplingIntervalSeconds(samplingIntervalSeconds),
+          m_queueLimitPackets(queueLimitPackets),
           m_previousBytes(flowIds.size(), 0)
     {
         std::filesystem::create_directories(m_outputDirectory);
@@ -212,7 +214,7 @@ class MeasurementCollector
             m_queueFile << timeSeconds << ',' << (index == 0 ? "left_to_right" : "right_to_left")
                         << ',' << m_bottleneckQueues[index]->GetNPackets() << ','
                         << m_bottleneckQueues[index]->GetNBytes() << ','
-                        << QUEUE_LIMIT_PACKETS << '\n';
+                        << m_queueLimitPackets << '\n';
         }
 
         if (sampleTime < Seconds(m_simulationDurationSeconds))
@@ -235,6 +237,7 @@ class MeasurementCollector
     std::vector<Ptr<Queue<Packet>>> m_bottleneckQueues;
     double m_simulationDurationSeconds;
     double m_samplingIntervalSeconds;
+    uint32_t m_queueLimitPackets;
     std::ofstream m_throughputFile;
     std::ofstream m_queueFile;
     std::ofstream m_dropFile;
@@ -269,6 +272,10 @@ main(int argc, char* argv[])
     uint32_t activeFlowCount = 3;
     uint32_t randomSeed = 1;
     uint64_t runNumber = 1;
+    uint32_t queueLimitPackets = QUEUE_LIMIT_PACKETS;
+    bool temporaryCompetition = false;
+    double competingFlowsStartSeconds = 6.0;
+    double competingFlowsStopSeconds = 14.0;
 
     CommandLine commandLine(__FILE__);
     commandLine.AddValue("accessDataRate", "Data rate for source and destination access links",
@@ -305,6 +312,17 @@ main(int argc, char* argv[])
                          activeFlowCount);
     commandLine.AddValue("randomSeed", "NS-3 random seed", randomSeed);
     commandLine.AddValue("runNumber", "NS-3 random run number", runNumber);
+    commandLine.AddValue("queueLimitPackets", "DropTail queue limit in packets",
+                         queueLimitPackets);
+    commandLine.AddValue("temporaryCompetition",
+                         "Run flow 1 continuously while flows 2 and 3 compete temporarily",
+                         temporaryCompetition);
+    commandLine.AddValue("competingFlowsStart",
+                         "Start time in seconds for temporary competing flows",
+                         competingFlowsStartSeconds);
+    commandLine.AddValue("competingFlowsStop",
+                         "Stop time in seconds for temporary competing flows",
+                         competingFlowsStopSeconds);
     commandLine.Parse(argc, argv);
 
     NS_ABORT_MSG_UNLESS(simulationDurationSeconds > 0,
@@ -319,6 +337,14 @@ main(int argc, char* argv[])
                         "Measurement interval must be greater than zero");
     NS_ABORT_MSG_UNLESS(activeFlowCount >= 1 && activeFlowCount <= 3,
                         "activeFlows must be between 1 and 3");
+    NS_ABORT_MSG_UNLESS(queueLimitPackets > 0, "Queue limit must be greater than zero");
+    NS_ABORT_MSG_UNLESS(!temporaryCompetition || activeFlowCount == 3,
+                        "Temporary competition requires three active flows");
+    NS_ABORT_MSG_UNLESS(!temporaryCompetition ||
+                            (applicationStartSeconds <= competingFlowsStartSeconds &&
+                             competingFlowsStartSeconds < competingFlowsStopSeconds &&
+                             competingFlowsStopSeconds <= applicationStopSeconds),
+                        "Temporary competition times must be within the sender interval");
     NS_ABORT_MSG_UNLESS(destinationPort1 != destinationPort2 &&
                             destinationPort1 != destinationPort3 &&
                             destinationPort2 != destinationPort3,
@@ -348,14 +374,14 @@ main(int argc, char* argv[])
     accessLink.SetChannelAttribute("Delay", StringValue(accessDelay));
     accessLink.SetQueue("ns3::DropTailQueue",
                         "MaxSize",
-                        StringValue(std::to_string(QUEUE_LIMIT_PACKETS) + "p"));
+                        StringValue(std::to_string(queueLimitPackets) + "p"));
 
     PointToPointHelper bottleneckLink;
     bottleneckLink.SetDeviceAttribute("DataRate", StringValue(bottleneckDataRate));
     bottleneckLink.SetChannelAttribute("Delay", StringValue(bottleneckDelay));
     bottleneckLink.SetQueue("ns3::DropTailQueue",
                             "MaxSize",
-                            StringValue(std::to_string(QUEUE_LIMIT_PACKETS) + "p"));
+                            StringValue(std::to_string(queueLimitPackets) + "p"));
 
     NetDeviceContainer sourceAccessDevices[3];
     NetDeviceContainer destinationAccessDevices[3];
@@ -411,6 +437,14 @@ main(int argc, char* argv[])
     Ptr<FlowMonitor> flowMonitor = flowMonitorHelper.InstallAll();
 
     const uint16_t destinationPorts[] = {destinationPort1, destinationPort2, destinationPort3};
+    const double senderStartTimes[] = {
+        applicationStartSeconds,
+        temporaryCompetition ? competingFlowsStartSeconds : applicationStartSeconds,
+        temporaryCompetition ? competingFlowsStartSeconds : applicationStartSeconds};
+    const double senderStopTimes[] = {
+        applicationStopSeconds,
+        temporaryCompetition ? competingFlowsStopSeconds : applicationStopSeconds,
+        temporaryCompetition ? competingFlowsStopSeconds : applicationStopSeconds};
     ApplicationContainer senderApplications;
     ApplicationContainer sinkApplications;
     std::vector<Ptr<PacketSink>> packetSinks;
@@ -432,8 +466,8 @@ main(int argc, char* argv[])
         sender.SetAttribute("SendSize", UintegerValue(packetSizeBytes));
         sender.SetAttribute("MaxBytes", UintegerValue(maximumBytes));
         ApplicationContainer senderApplication = sender.Install(sourceNodes.Get(index));
-        senderApplication.Start(Seconds(applicationStartSeconds));
-        senderApplication.Stop(Seconds(applicationStopSeconds));
+        senderApplication.Start(Seconds(senderStartTimes[index]));
+        senderApplication.Stop(Seconds(senderStopTimes[index]));
         senderApplications.Add(senderApplication);
     }
 
@@ -458,7 +492,8 @@ main(int argc, char* argv[])
                                      {"flow1", "flow2", "flow3"},
                                      bottleneckQueues,
                                      simulationDurationSeconds,
-                                     measurementIntervalSeconds);
+                                     measurementIntervalSeconds,
+                                     queueLimitPackets);
     NS_ABORT_MSG_UNLESS(
         bottleneckQueues[0]->TraceConnectWithoutContext(
             "Drop",
@@ -494,7 +529,10 @@ main(int argc, char* argv[])
                                                            destinationPorts + activeFlowCount));
     measurements.WriteDropRecords();
 
-    const double commonIntervalSeconds = applicationStopSeconds - applicationStartSeconds;
+    const double commonIntervalSeconds = temporaryCompetition
+                                             ? competingFlowsStopSeconds -
+                                                   competingFlowsStartSeconds
+                                             : applicationStopSeconds - applicationStartSeconds;
     double sumThroughput = 0;
     double sumSquaredThroughput = 0;
     for (const auto& sink : packetSinks)
@@ -503,7 +541,7 @@ main(int argc, char* argv[])
         sumThroughput += throughput;
         sumSquaredThroughput += throughput * throughput;
     }
-    const double fairness = sumThroughput > 0
+    const double fairness = !temporaryCompetition && sumThroughput > 0
                                 ? (sumThroughput * sumThroughput) /
                                       (activeFlowCount * sumSquaredThroughput)
                                 : 0;
@@ -517,21 +555,31 @@ main(int argc, char* argv[])
                  << "  \"application_start_s\": " << applicationStartSeconds << ",\n"
                  << "  \"application_stop_s\": " << applicationStopSeconds << ",\n"
                  << "  \"sink_start_s\": " << sinkStartSeconds << ",\n"
+                 << "  \"temporary_competition\": "
+                 << (temporaryCompetition ? "true" : "false") << ",\n"
+                 << "  \"competing_flows_start_s\": " << competingFlowsStartSeconds << ",\n"
+                 << "  \"competing_flows_stop_s\": " << competingFlowsStopSeconds << ",\n"
                  << "  \"flow_count\": " << activeFlowCount << ",\n"
                  << "  \"random_seed\": " << randomSeed << ",\n"
                  << "  \"run_number\": " << runNumber << ",\n"
                  << "  \"tcp_variant\": \"" << tcpVariant << "\",\n"
                  << "  \"bottleneck_data_rate\": \"" << bottleneckDataRate << "\",\n"
                  << "  \"bottleneck_delay\": \"" << bottleneckDelay << "\",\n"
-                 << "  \"queue_limit_packets\": " << QUEUE_LIMIT_PACKETS << ",\n"
+                 << "  \"queue_limit_packets\": " << queueLimitPackets << ",\n"
                  << "  \"measurement_interval_s\": " << measurementIntervalSeconds << ",\n"
                  << "  \"output_directory\": \"" << outputDirectory << "\",\n"
                  << "  \"flow_monitor_layer\": \"IPv4\",\n"
                  << "  \"throughput_timestamp\": \"interval_end\",\n"
-                 << "  \"fairness_index\": " << (sumThroughput > 0 ? std::to_string(fairness)
-                                                                    : "null")
+                 << "  \"fairness_index\": "
+                 << (!temporaryCompetition && sumThroughput > 0
+                         ? std::to_string(fairness)
+                         : "null")
                  << ",\n"
-                 << "  \"fairness_definition\": \"application bytes received divided by common sender interval\",\n"
+                 << "  \"fairness_definition\": \"application bytes received divided by common sender interval; null for temporary competition\",\n"
+                 << "  \"flow_start_times_s\": [" << senderStartTimes[0] << ","
+                 << senderStartTimes[1] << "," << senderStartTimes[2] << "],\n"
+                 << "  \"flow_stop_times_s\": [" << senderStopTimes[0] << ","
+                 << senderStopTimes[1] << "," << senderStopTimes[2] << "],\n"
                  << "  \"run_identifier\": \"baseline\"\n"
                  << "}\n";
     }

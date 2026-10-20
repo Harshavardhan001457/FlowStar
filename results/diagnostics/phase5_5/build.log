@@ -1,0 +1,5 @@
+[0/2] Re-checking globbed directories...
+[1/2] Building CXX object scratch/CMakeFiles/scratch_flowstar-baseline.dir/flowstar-baseline.cc.o
+[2/2] Linking CXX executable /home/harsha/Projects/ns3/ns-3.48/build/scratch/ns3.48-flowstar-baseline-default
+Finished executing the following commands:
+/usr/bin/cmake --build /home/harsha/Projects/ns3/ns-3.48/cmake-cache -j 15 --target scratch_flowstar-baseline
