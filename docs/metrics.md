@@ -78,6 +78,19 @@ sender interval (1 to 19 seconds by default). This is one aggregate value,
 not a claim about fairness at every instant. A zero-throughput run is represented as JSON `null`; the normal baseline run
 has nonzero reception on every flow.
 
+When `dynamicQueueAssignment=true`, the run also writes
+`dqa_queue_timeseries.csv` and `dqa_assignments.csv`. These describe two
+software QueueDisc internal queue classes per bottleneck direction. They are
+logical queue resources, not additional physical point-to-point device queues
+or hardware virtual lanes. The DQA files do not replace the existing
+`queue_timeseries.csv` or `packet_drops.csv` definitions.
+
+When `hybridPerFlowState=true` is also enabled, the run writes
+`hybrid_state.csv`. This records per-flow logical assignment lifecycle events,
+dedicated-resource counts, and shared-fallback counts. A hybrid assignment is
+software state associated with the existing QueueDisc classes; it is not a
+claim that each flow owns a physical queue.
+
 ## Reproduction
 
 The source is compiled with the NS-3.48 wrapper and run with the project as

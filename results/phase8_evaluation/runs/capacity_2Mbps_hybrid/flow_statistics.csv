@@ -1,0 +1,4 @@
+flow_id,source_ip,destination_ip,source_port,destination_port,protocol,tx_packets,rx_packets,tx_bytes,rx_bytes,average_delay_s,packet_delivery_ratio,lost_packets,first_tx_time_s,last_rx_time_s,average_throughput_bps,application_rx_bytes
+flow1,10.0.1.1,10.0.4.2,49153,5001,6,3151,3064,1851224,1800564,0.385134,0.972390,38,1.000000,19.991622,758466.651207,1641232
+flow2,10.0.2.1,10.0.5.2,49153,5002,6,2729,2627,1603584,1543608,0.410722,0.962624,36,1.000000,19.998702,649984.612001,1407000
+flow3,10.0.3.1,10.0.6.2,49153,5003,6,2428,2347,1426596,1378968,0.426356,0.966639,36,1.000000,19.977462,581307.656076,1236552

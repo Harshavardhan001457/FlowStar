@@ -1,0 +1,13 @@
+time_s,direction,destination_port,assignment,state_event,dedicated_resource,active_state_entries,dedicated_flow_count,shared_flow_count
+1,left_to_right,5001,0,created,0,2,1,0
+1,left_to_right,5001,0,initial_assignment,0,2,1,0
+1,right_to_left,5001,0,created,0,2,1,0
+1,right_to_left,5001,0,initial_assignment,0,2,1,0
+1,left_to_right,5002,1,created,1,2,2,0
+1,left_to_right,5002,1,initial_assignment,1,2,2,0
+1,right_to_left,5002,1,created,1,2,2,0
+1,right_to_left,5002,1,initial_assignment,1,2,2,0
+19.001,left_to_right,5001,0,released,shared,2,1,0
+19.001,right_to_left,5001,0,released,shared,2,1,0
+19.001,left_to_right,5002,1,released,shared,1,0,0
+19.001,right_to_left,5002,1,released,shared,1,0,0

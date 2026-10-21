@@ -1,0 +1,6 @@
+scenario,exit_status
+baseline,0
+dqa_only,0
+hybrid_sufficient,0
+hybrid_partial,0
+hybrid_exhausted,0

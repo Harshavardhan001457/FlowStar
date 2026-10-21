@@ -1,0 +1,4 @@
+Basic validation: flow 1 received 1744680 application bytes.
+Basic validation: flow 2 received 837768 application bytes.
+Basic validation: flow 3 received 1722704 application bytes.
+Topology simulation completed at 20 seconds with 8 nodes, 7 addressed links, and 3 TCP senders.
