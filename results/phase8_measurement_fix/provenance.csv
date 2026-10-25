@@ -1,0 +1,9 @@
+experiment_id,source_output_directory,configuration,scenario_id,source_manifest
+tcp_control_baseline,results/phase8_fixed/runs/tcp_control_baseline,baseline,tcp_control,results/phase8_fixed/manifest.csv
+tcp_control_dqa,results/phase8_fixed/runs/tcp_control_dqa,dqa,tcp_control,results/phase8_fixed/manifest.csv
+tcp_control_hybrid,results/phase8_fixed/runs/tcp_control_hybrid,hybrid,tcp_control,results/phase8_fixed/manifest.csv
+udp_stress_baseline,results/phase8_fixed/runs/udp_stress_baseline,baseline,udp_stress,results/phase8_fixed/manifest.csv
+udp_stress_dqa,results/phase8_fixed/runs/udp_stress_dqa,dqa,udp_stress,results/phase8_fixed/manifest.csv
+udp_stress_hybrid_10resources,results/phase8_fixed/runs/udp_stress_hybrid_10resources,hybrid,udp_stress,results/phase8_fixed/manifest.csv
+udp_stress_hybrid_3resources,results/phase8_fixed/runs/udp_stress_hybrid_3resources,hybrid,udp_stress,results/phase8_fixed/manifest.csv
+udp_stress_hybrid_1resources,results/phase8_fixed/runs/udp_stress_hybrid_1resources,hybrid,udp_stress,results/phase8_fixed/manifest.csv

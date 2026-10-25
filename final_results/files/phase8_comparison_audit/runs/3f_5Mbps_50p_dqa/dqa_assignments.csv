@@ -1,0 +1,7 @@
+time_s,direction,destination_port,old_queue_class,new_queue_class,busy_occupancy_packets,quiet_occupancy_packets,threshold_packets,reason
+0,left_to_right,5001,,0,,,,initial
+0,left_to_right,5002,,1,,,,initial
+0,left_to_right,5003,,0,,,,initial
+0,right_to_left,5001,,0,,,,initial
+0,right_to_left,5002,,1,,,,initial
+0,right_to_left,5003,,0,,,,initial

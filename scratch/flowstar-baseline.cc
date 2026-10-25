@@ -16,21 +16,25 @@
 #include "ns3/traffic-control-module.h"
 #include "ns3/ipv4-queue-disc-item.h"
 #include "ns3/tcp-header.h"
+#include "ns3/udp-header.h"
 
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #include <iomanip>
 #include <limits>
 #include <map>
 #include <sstream>
+#include <vector>
 
 using namespace ns3;
 
 namespace
 {
 
-constexpr uint32_t NODE_COUNT = 8;
-constexpr uint32_t LINK_COUNT = 7;
+constexpr uint32_t ROUTER_NODE_COUNT = 2;
+constexpr uint32_t MAX_SUPPORTED_FLOWS = 10;
+constexpr uint32_t LINK_COUNT = 2;
 constexpr uint32_t QUEUE_LIMIT_PACKETS = 100;
 constexpr double SIMULATION_DURATION_SECONDS = 20.0;
 constexpr double DEFAULT_APPLICATION_START_SECONDS = 1.0;
@@ -48,6 +52,7 @@ constexpr double DQA_SWITCH_COOLDOWN_SECONDS = 1.0;
 struct QueueDropRecord
 {
     std::string direction;
+    std::string queueLayer;
     uint32_t packetSize;
     double timeSeconds;
 };
@@ -73,7 +78,7 @@ class DynamicQueueAssignmentDisc : public QueueDisc
                               UintegerValue(DQA_QUEUE_CLASS_COUNT),
                               MakeUintegerAccessor(&DynamicQueueAssignmentDisc::m_queueClassCount),
                               MakeUintegerChecker<uint32_t>(DQA_QUEUE_CLASS_COUNT,
-                                                            HYBRID_QUEUE_CLASS_COUNT));
+                                                            MAX_SUPPORTED_FLOWS + 1));
         return tid;
     }
 
@@ -194,16 +199,27 @@ class DynamicQueueAssignmentDisc : public QueueDisc
     static uint16_t GetDestinationPort(Ptr<QueueDiscItem> item)
     {
         Ptr<Ipv4QueueDiscItem> ipv4Item = DynamicCast<Ipv4QueueDiscItem>(item);
-        if (!ipv4Item || ipv4Item->GetHeader().GetProtocol() != 6)
+        if (!ipv4Item ||
+        (ipv4Item->GetHeader().GetProtocol() != 6 &&
+         ipv4Item->GetHeader().GetProtocol() != 17))
+        {
+        return 0;
+        }
+        if (ipv4Item->GetHeader().GetProtocol() == 6)
+        {
+        TcpHeader header;
+        if (ipv4Item->GetPacket()->PeekHeader(header) == 0)
         {
             return 0;
         }
-        TcpHeader tcpHeader;
-        if (ipv4Item->GetPacket()->PeekHeader(tcpHeader) == 0)
-        {
-            return 0;
+        return header.GetDestinationPort();
         }
-        return tcpHeader.GetDestinationPort();
+        UdpHeader header;
+        if (ipv4Item->GetPacket()->PeekHeader(header) == 0)
+        {
+        return 0;
+        }
+        return header.GetDestinationPort();
     }
 
     std::map<uint16_t, uint32_t> m_flowQueues;
@@ -233,7 +249,9 @@ class DqaController
                             "Unable to open DQA measurement files");
         m_queueFile << "time_s,direction,queue_class,occupancy_packets,occupancy_bytes,"
                        "configured_limit_packets\n";
-        m_assignmentFile << "time_s,direction,destination_port,queue_class,event\n";
+        m_assignmentFile
+            << "time_s,direction,destination_port,old_queue_class,new_queue_class,"
+               "busy_occupancy_packets,quiet_occupancy_packets,threshold_packets,reason\n";
         m_lastSwitchSeconds.assign(queueDiscs.size(),
                                    std::numeric_limits<double>::lowest());
         for (auto& queueDisc : m_queueDiscs)
@@ -305,7 +323,10 @@ class DqaController
                     m_lastSwitchSeconds[direction] = now;
                     m_assignmentFile << now << ','
                                      << (direction == 0 ? "left_to_right" : "right_to_left")
-                                     << ',' << candidatePort << ',' << quietQueue << ",moved\n";
+                                     << ',' << candidatePort << ',' << busyQueue << ','
+                                     << quietQueue << ',' << busyPackets << ',' << quietPackets
+                                     << ',' << (m_queueLimitPackets * DQA_SWITCH_THRESHOLD)
+                                     << ",occupancy_difference\n";
                 }
             }
             queueDisc->ResetRecentEnqueues();
@@ -326,8 +347,9 @@ class DqaController
         {
             m_assignmentFile << now << ','
                              << (direction == 0 ? "left_to_right" : "right_to_left") << ','
-                             << port << ',' << m_queueDiscs[direction]->GetFlowQueue(port)
-                             << ',' << event << '\n';
+                             << port << ",,"
+                             << m_queueDiscs[direction]->GetFlowQueue(port)
+                             << ",,,," << event << '\n';
         }
     }
 
@@ -535,6 +557,8 @@ class MeasurementCollector
                          const std::vector<Ptr<PacketSink>>& packetSinks,
                          const std::vector<std::string>& flowIds,
                          const std::vector<Ptr<Queue<Packet>>>& bottleneckQueues,
+                         const std::vector<Ptr<DynamicQueueAssignmentDisc>>& dqaQueueDiscs,
+                         uint32_t queueClassCount,
                          double simulationDurationSeconds,
                          double samplingIntervalSeconds,
                          uint32_t queueLimitPackets)
@@ -542,6 +566,8 @@ class MeasurementCollector
           m_packetSinks(packetSinks),
           m_flowIds(flowIds),
           m_bottleneckQueues(bottleneckQueues),
+          m_dqaQueueDiscs(dqaQueueDiscs),
+          m_queueClassCount(queueClassCount),
           m_simulationDurationSeconds(simulationDurationSeconds),
           m_samplingIntervalSeconds(samplingIntervalSeconds),
           m_queueLimitPackets(queueLimitPackets),
@@ -550,15 +576,33 @@ class MeasurementCollector
         std::filesystem::create_directories(m_outputDirectory);
         m_throughputFile.open(m_outputDirectory + "/throughput_timeseries.csv");
         m_queueFile.open(m_outputDirectory + "/queue_timeseries.csv");
+        m_physicalQueueFile.open(m_outputDirectory + "/physical_queue_timeseries.csv");
+        m_queueDiscFile.open(m_outputDirectory + "/queuedisc_timeseries.csv");
+        m_logicalQueueFile.open(m_outputDirectory + "/logical_queue_timeseries.csv");
         m_dropFile.open(m_outputDirectory + "/packet_drops.csv");
-        NS_ABORT_MSG_UNLESS(m_throughputFile && m_queueFile && m_dropFile,
+        m_physicalDropFile.open(m_outputDirectory + "/physical_queue_drops.csv");
+        m_queueDiscDropFile.open(m_outputDirectory + "/queuedisc_root_drops.csv");
+        m_internalDropFile.open(m_outputDirectory + "/internal_queuedisc_drops.csv");
+        NS_ABORT_MSG_UNLESS(m_throughputFile && m_queueFile && m_physicalQueueFile &&
+                                m_queueDiscFile && m_logicalQueueFile && m_dropFile &&
+                                m_physicalDropFile && m_queueDiscDropFile &&
+                                m_internalDropFile,
                             "Unable to open measurement CSV files");
 
         m_throughputFile << "time_s,flow_id,cumulative_rx_bytes,interval_rx_bytes,"
                             "interval_throughput_bps\n";
         m_queueFile << "time_s,queue_id,occupancy_packets,occupancy_bytes,"
                        "configured_limit_packets\n";
+        m_physicalQueueFile << "time_s,direction,occupancy_packets,occupancy_bytes,"
+                               "configured_limit_packets,queue_object\n";
+        m_queueDiscFile << "time_s,direction,occupancy_packets,occupancy_bytes,"
+                           "configured_limit_packets,queue_object\n";
+        m_logicalQueueFile << "time_s,direction,queue_class,occupancy_packets,"
+                              "occupancy_bytes,configured_limit_packets,queue_object\n";
         m_dropFile << "time_s,queue_id,trace_source,packet_size_bytes\n";
+        m_physicalDropFile << "time_s,direction,trace_source,packet_size_bytes,queue_object\n";
+        m_queueDiscDropFile << "time_s,direction,trace_source,packet_size_bytes,queue_object\n";
+        m_internalDropFile << "time_s,direction,trace_source,packet_size_bytes,queue_object\n";
     }
 
     void Start()
@@ -570,27 +614,28 @@ class MeasurementCollector
                             Seconds(m_simulationDurationSeconds));
     }
 
-    void RecordDrop(const std::string& queueId, const std::string& traceSource,
+    void RecordDrop(const std::string& queueId, const std::string& queueLayer,
+                    const std::string& traceSource,
                     Ptr<const Packet> packet)
     {
         m_dropRecords.push_back(
-            {queueId, packet ? packet->GetSize() : 0, Simulator::Now().GetSeconds()});
-        m_dropTraceSources.push_back(traceSource);
+            {queueId, queueLayer, packet ? packet->GetSize() : 0, Simulator::Now().GetSeconds()});
     }
 
     void RecordLeftToRightDrop(Ptr<const Packet> packet)
     {
-        RecordDrop("left_to_right", "Drop", packet);
+        RecordDrop("left_to_right", "physical_netdevice", "Drop", packet);
     }
 
     void RecordRightToLeftDrop(Ptr<const Packet> packet)
     {
-        RecordDrop("right_to_left", "Drop", packet);
+        RecordDrop("right_to_left", "physical_netdevice", "Drop", packet);
     }
 
     void RecordDqaLeftToRightDrop(Ptr<const QueueDiscItem> item)
     {
         RecordDrop("left_to_right",
+                   "internal_queuedisc",
                    "DQAInternalQueueDrop",
                    item ? item->GetPacket() : nullptr);
     }
@@ -598,13 +643,31 @@ class MeasurementCollector
     void RecordDqaRightToLeftDrop(Ptr<const QueueDiscItem> item)
     {
         RecordDrop("right_to_left",
+                   "internal_queuedisc",
                    "DQAInternalQueueDrop",
+                   item ? item->GetPacket() : nullptr);
+    }
+
+    void RecordQueueDiscLeftToRightDrop(Ptr<const QueueDiscItem> item)
+    {
+        RecordDrop("left_to_right",
+                   "root_queuedisc",
+                   "QueueDiscDrop",
+                   item ? item->GetPacket() : nullptr);
+    }
+
+    void RecordQueueDiscRightToLeftDrop(Ptr<const QueueDiscItem> item)
+    {
+        RecordDrop("right_to_left",
+                   "root_queuedisc",
+                   "QueueDiscDrop",
                    item ? item->GetPacket() : nullptr);
     }
 
     void WriteFlowStatistics(FlowMonitorHelper& flowMonitorHelper,
                              Ptr<FlowMonitor> monitor,
-                             const std::vector<uint16_t>& destinationPorts)
+                             const std::vector<uint16_t>& destinationPorts,
+                             uint8_t protocol)
     {
         std::ofstream output(m_outputDirectory + "/flow_statistics.csv");
         NS_ABORT_MSG_UNLESS(output, "Unable to open flow statistics CSV");
@@ -627,7 +690,7 @@ class MeasurementCollector
                 const Ipv4FlowClassifier::FiveTuple tuple =
                     classifier->FindFlow(entry.first);
                 if (tuple.destinationPort != destinationPorts[flowIndex] ||
-                    tuple.protocol != 6)
+                    tuple.protocol != protocol)
                 {
                     continue;
                 }
@@ -675,7 +738,28 @@ class MeasurementCollector
         {
             const QueueDropRecord& record = m_dropRecords[index];
             m_dropFile << record.timeSeconds << ',' << record.direction << ','
-                       << m_dropTraceSources[index] << ',' << record.packetSize << '\n';
+                       << (record.queueLayer == "physical_netdevice"
+                               ? "Drop"
+                               : record.queueLayer == "root_queuedisc" ? "QueueDiscDrop"
+                                                                        : "DQAInternalQueueDrop")
+                       << ',' << record.packetSize << '\n';
+            auto& output = record.queueLayer == "physical_netdevice"
+                               ? m_physicalDropFile
+                               : record.queueLayer == "root_queuedisc"
+                                     ? m_queueDiscDropFile
+                                     : m_internalDropFile;
+            output << record.timeSeconds << ',' << record.direction << ','
+                   << (record.queueLayer == "physical_netdevice"
+                           ? "Drop"
+                           : record.queueLayer == "root_queuedisc" ? "QueueDiscDrop"
+                                                                    : "DQAInternalQueueDrop")
+                   << ',' << record.packetSize << ','
+                   << (record.queueLayer == "physical_netdevice"
+                           ? "PointToPointNetDevice::Queue"
+                           : record.queueLayer == "root_queuedisc"
+                                 ? "QueueDisc::Root"
+                                 : "QueueDisc::InternalQueue")
+                   << '\n';
         }
     }
 
@@ -711,10 +795,40 @@ class MeasurementCollector
 
         for (uint32_t index = 0; index < m_bottleneckQueues.size(); ++index)
         {
-            m_queueFile << timeSeconds << ',' << (index == 0 ? "left_to_right" : "right_to_left")
-                        << ',' << m_bottleneckQueues[index]->GetNPackets() << ','
-                        << m_bottleneckQueues[index]->GetNBytes() << ','
-                        << m_queueLimitPackets << '\n';
+            const std::string direction = index == 0 ? "left_to_right" : "right_to_left";
+            const uint32_t physicalPackets = m_bottleneckQueues[index]->GetNPackets();
+            const uint32_t physicalBytes = m_bottleneckQueues[index]->GetNBytes();
+            m_physicalQueueFile << timeSeconds << ',' << direction << ','
+                                << physicalPackets << ',' << physicalBytes << ','
+                                << m_queueLimitPackets << ",PointToPointNetDevice::Queue\n";
+            m_queueFile << timeSeconds << ',' << direction << ',' << physicalPackets << ','
+                        << physicalBytes << ',' << m_queueLimitPackets << '\n';
+        }
+        if (!m_dqaQueueDiscs.empty())
+        {
+            for (uint32_t directionIndex = 0; directionIndex < m_dqaQueueDiscs.size();
+                 ++directionIndex)
+            {
+                uint32_t aggregatePackets = 0;
+                uint32_t aggregateBytes = 0;
+                for (uint32_t queue = 0; queue < m_queueClassCount; ++queue)
+                {
+                    const uint32_t packets =
+                        m_dqaQueueDiscs[directionIndex]->GetQueuePackets(queue);
+                    const uint32_t bytes = m_dqaQueueDiscs[directionIndex]->GetQueueBytes(queue);
+                    aggregatePackets += packets;
+                    aggregateBytes += bytes;
+                    m_logicalQueueFile << timeSeconds << ','
+                                       << (directionIndex == 0 ? "left_to_right"
+                                                               : "right_to_left")
+                                       << ',' << queue << ',' << packets << ',' << bytes << ','
+                                       << m_queueLimitPackets << ",QueueDisc::InternalQueue\n";
+                }
+                m_queueDiscFile << timeSeconds << ','
+                                << (directionIndex == 0 ? "left_to_right" : "right_to_left")
+                                << ',' << aggregatePackets << ',' << aggregateBytes << ','
+                                << m_queueLimitPackets << ",QueueDisc::RootAggregate\n";
+            }
         }
 
         if (sampleTime < Seconds(m_simulationDurationSeconds))
@@ -735,17 +849,24 @@ class MeasurementCollector
     std::vector<Ptr<PacketSink>> m_packetSinks;
     std::vector<std::string> m_flowIds;
     std::vector<Ptr<Queue<Packet>>> m_bottleneckQueues;
+    std::vector<Ptr<DynamicQueueAssignmentDisc>> m_dqaQueueDiscs;
+    uint32_t m_queueClassCount;
     double m_simulationDurationSeconds;
     double m_samplingIntervalSeconds;
     uint32_t m_queueLimitPackets;
     std::ofstream m_throughputFile;
     std::ofstream m_queueFile;
+    std::ofstream m_physicalQueueFile;
+    std::ofstream m_queueDiscFile;
+    std::ofstream m_logicalQueueFile;
     std::ofstream m_dropFile;
+    std::ofstream m_physicalDropFile;
+    std::ofstream m_queueDiscDropFile;
+    std::ofstream m_internalDropFile;
     std::vector<uint64_t> m_previousBytes;
     double m_previousTimeSeconds = 0;
     bool m_havePreviousSample = false;
     std::vector<QueueDropRecord> m_dropRecords;
-    std::vector<std::string> m_dropTraceSources;
 };
 
 } // namespace
@@ -759,6 +880,8 @@ main(int argc, char* argv[])
     std::string bottleneckDelay = "10ms";
     double simulationDurationSeconds = SIMULATION_DURATION_SECONDS;
     std::string tcpVariant = "ns3::TcpNewReno";
+    std::string trafficModel = "tcp";
+    std::string offeredRate = "500Kbps";
     double applicationStartSeconds = DEFAULT_APPLICATION_START_SECONDS;
     double applicationStopSeconds = DEFAULT_APPLICATION_STOP_SECONDS;
     double sinkStartSeconds = DEFAULT_SINK_START_SECONDS;
@@ -774,6 +897,7 @@ main(int argc, char* argv[])
     uint64_t runNumber = 1;
     uint32_t queueLimitPackets = QUEUE_LIMIT_PACKETS;
     bool dynamicQueueAssignment = false;
+    bool fixedQueueAssignment = false;
     bool hybridPerFlowState = false;
     uint32_t hybridDedicatedResources = DQA_QUEUE_CLASS_COUNT;
     bool temporaryCompetition = false;
@@ -791,6 +915,8 @@ main(int argc, char* argv[])
     commandLine.AddValue("simulationDuration", "Simulation duration in seconds",
                          simulationDurationSeconds);
     commandLine.AddValue("tcpVariant", "TCP congestion-control TypeId", tcpVariant);
+    commandLine.AddValue("trafficModel", "Traffic workload: tcp or udp", trafficModel);
+    commandLine.AddValue("offeredRate", "UDP offered rate per flow", offeredRate);
     commandLine.AddValue("applicationStart",
                          "Sender application start time in seconds",
                          applicationStartSeconds);
@@ -820,6 +946,9 @@ main(int argc, char* argv[])
     commandLine.AddValue("dynamicQueueAssignment",
                          "Enable congestion-aware software queue-class assignment",
                          dynamicQueueAssignment);
+    commandLine.AddValue("fixedQueueAssignment",
+                         "Install the QueueDisc with fixed initial assignments",
+                         fixedQueueAssignment);
     commandLine.AddValue("hybridPerFlowState",
                          "Enable per-flow state and shared-resource fallback",
                          hybridPerFlowState);
@@ -845,10 +974,14 @@ main(int argc, char* argv[])
                             applicationStopSeconds <= simulationDurationSeconds,
                         "Application and simulation times are invalid");
     NS_ABORT_MSG_UNLESS(packetSizeBytes > 0, "Packet size must be greater than zero");
+    NS_ABORT_MSG_UNLESS(trafficModel == "tcp" || trafficModel == "udp",
+                        "trafficModel must be tcp or udp");
+    NS_ABORT_MSG_UNLESS(trafficModel != "udp" || !temporaryCompetition,
+                        "UDP stress does not support temporary competition");
     NS_ABORT_MSG_UNLESS(measurementIntervalSeconds > 0,
                         "Measurement interval must be greater than zero");
-    NS_ABORT_MSG_UNLESS(activeFlowCount >= 1 && activeFlowCount <= 3,
-                        "activeFlows must be between 1 and 3");
+    NS_ABORT_MSG_UNLESS(activeFlowCount >= 1 && activeFlowCount <= MAX_SUPPORTED_FLOWS,
+                        "activeFlows must be between 1 and 10");
     NS_ABORT_MSG_UNLESS(queueLimitPackets > 0, "Queue limit must be greater than zero");
     NS_ABORT_MSG_UNLESS(!temporaryCompetition || activeFlowCount == 3,
                         "Temporary competition requires three active flows");
@@ -859,12 +992,14 @@ main(int argc, char* argv[])
                         "Temporary competition times must be within the sender interval");
     NS_ABORT_MSG_UNLESS(!hybridPerFlowState || dynamicQueueAssignment,
                         "Hybrid per-flow state requires dynamic queue assignment");
+    NS_ABORT_MSG_UNLESS(!fixedQueueAssignment || !dynamicQueueAssignment,
+                        "Fixed and dynamic queue assignment cannot both be enabled");
     NS_ABORT_MSG_UNLESS(!hybridPerFlowState || !temporaryCompetition,
                         "Hybrid per-flow state does not support temporary competition");
     NS_ABORT_MSG_UNLESS(!hybridPerFlowState ||
                             (hybridDedicatedResources >= 1 &&
-                             hybridDedicatedResources <= 3),
-                        "Hybrid dedicated resources must be between 1 and 3");
+                             hybridDedicatedResources <= activeFlowCount),
+                        "Hybrid dedicated resources must be between 1 and activeFlows");
     NS_ABORT_MSG_UNLESS(destinationPort1 != destinationPort2 &&
                             destinationPort1 != destinationPort3 &&
                             destinationPort2 != destinationPort3,
@@ -874,20 +1009,36 @@ main(int argc, char* argv[])
     RngSeedManager::SetSeed(randomSeed);
     RngSeedManager::SetRun(runNumber);
 
+    std::vector<uint16_t> destinationPorts;
+    destinationPorts.reserve(activeFlowCount);
+    destinationPorts.push_back(destinationPort1);
+    destinationPorts.push_back(destinationPort2);
+    destinationPorts.push_back(destinationPort3);
+    for (uint32_t index = 3; index < activeFlowCount; ++index)
+    {
+        destinationPorts.push_back(FIRST_DESTINATION_PORT + index);
+    }
+    std::sort(destinationPorts.begin(), destinationPorts.end());
+    destinationPorts.resize(activeFlowCount);
+    NS_ABORT_MSG_UNLESS(std::adjacent_find(destinationPorts.begin(), destinationPorts.end()) ==
+                            destinationPorts.end(),
+                        "Destination ports must be distinct");
+
     NodeContainer sourceNodes;
-    sourceNodes.Create(3);
+    sourceNodes.Create(activeFlowCount);
 
     NodeContainer routerNodes;
     routerNodes.Create(2);
 
     NodeContainer destinationNodes;
-    destinationNodes.Create(3);
+    destinationNodes.Create(activeFlowCount);
 
     NodeContainer allNodes;
     allNodes.Add(sourceNodes);
     allNodes.Add(routerNodes);
     allNodes.Add(destinationNodes);
-    NS_ABORT_MSG_UNLESS(allNodes.GetN() == NODE_COUNT, "Unexpected node count");
+    NS_ABORT_MSG_UNLESS(allNodes.GetN() == activeFlowCount * 2 + ROUTER_NODE_COUNT,
+                        "Unexpected node count");
 
     PointToPointHelper accessLink;
     accessLink.SetDeviceAttribute("DataRate", StringValue(accessDataRate));
@@ -903,8 +1054,8 @@ main(int argc, char* argv[])
                             "MaxSize",
                             StringValue(std::to_string(queueLimitPackets) + "p"));
 
-    NetDeviceContainer sourceAccessDevices[3];
-    NetDeviceContainer destinationAccessDevices[3];
+    std::vector<NetDeviceContainer> sourceAccessDevices(activeFlowCount);
+    std::vector<NetDeviceContainer> destinationAccessDevices(activeFlowCount);
     for (uint32_t index = 0; index < sourceNodes.GetN(); ++index)
     {
         sourceAccessDevices[index] =
@@ -920,7 +1071,7 @@ main(int argc, char* argv[])
 
     Ipv4AddressHelper addressHelper;
     uint32_t assignedLinkCount = 0;
-    Ipv4Address destinationAddresses[3];
+    std::vector<Ipv4Address> destinationAddresses(activeFlowCount);
 
     for (uint32_t index = 0; index < sourceNodes.GetN(); ++index)
     {
@@ -932,7 +1083,7 @@ main(int argc, char* argv[])
         ++assignedLinkCount;
     }
 
-    addressHelper.SetBase(Ipv4Address("10.0.10.0"), Ipv4Mask("255.255.255.0"));
+    addressHelper.SetBase(Ipv4Address("10.0.100.0"), Ipv4Mask("255.255.255.0"));
     Ipv4InterfaceContainer bottleneckInterfaces = addressHelper.Assign(routerDevices);
     NS_ABORT_MSG_UNLESS(bottleneckInterfaces.GetN() == 2,
                         "The bottleneck link must have two IPv4 interfaces");
@@ -940,7 +1091,7 @@ main(int argc, char* argv[])
 
     for (uint32_t index = 0; index < destinationNodes.GetN(); ++index)
     {
-        addressHelper.SetBase(Ipv4Address(("10.0." + std::to_string(index + 4) + ".0").c_str()),
+        addressHelper.SetBase(Ipv4Address(("10.0." + std::to_string(index + 101) + ".0").c_str()),
                               Ipv4Mask("255.255.255.0"));
         Ipv4InterfaceContainer interfaces =
             addressHelper.Assign(destinationAccessDevices[index]);
@@ -950,27 +1101,24 @@ main(int argc, char* argv[])
         ++assignedLinkCount;
     }
 
-    NS_ABORT_MSG_UNLESS(assignedLinkCount == LINK_COUNT, "Unexpected link count");
+    NS_ABORT_MSG_UNLESS(assignedLinkCount == activeFlowCount * 2 + 1,
+                        "Unexpected link count");
 
     Ipv4GlobalRoutingHelper::PopulateRoutingTables();
-    const uint16_t destinationPorts[] = {destinationPort1, destinationPort2, destinationPort3};
-
     std::vector<Ptr<DynamicQueueAssignmentDisc>> dqaQueueDiscs;
-    if (dynamicQueueAssignment)
+    if (dynamicQueueAssignment || fixedQueueAssignment)
     {
         TrafficControlHelper existingTrafficControl;
         existingTrafficControl.Uninstall(routerDevices);
         TrafficControlHelper dqaHelper;
+        const uint32_t queueClassCount =
+            hybridPerFlowState ? hybridDedicatedResources + 1 : DQA_QUEUE_CLASS_COUNT;
         const uint16_t dqaHandle =
             dqaHelper.SetRootQueueDisc("ns3::DynamicQueueAssignmentDisc",
                                        "MaxSize",
                                        StringValue(std::to_string(queueLimitPackets) + "p"),
                                        "QueueClassCount",
-                                       UintegerValue(hybridPerFlowState
-                                                         ? HYBRID_QUEUE_CLASS_COUNT
-                                                         : DQA_QUEUE_CLASS_COUNT));
-        const uint32_t queueClassCount =
-            hybridPerFlowState ? HYBRID_QUEUE_CLASS_COUNT : DQA_QUEUE_CLASS_COUNT;
+                                       UintegerValue(queueClassCount));
         dqaHelper.AddInternalQueues(dqaHandle,
                                     queueClassCount,
                                     "ns3::DropTailQueue<QueueDiscItem>",
@@ -991,23 +1139,28 @@ main(int argc, char* argv[])
     FlowMonitorHelper flowMonitorHelper;
     Ptr<FlowMonitor> flowMonitor = flowMonitorHelper.InstallAll();
 
-    const double senderStartTimes[] = {
-        applicationStartSeconds,
-        temporaryCompetition ? competingFlowsStartSeconds : applicationStartSeconds,
-        temporaryCompetition ? competingFlowsStartSeconds : applicationStartSeconds};
-    const double senderStopTimes[] = {
-        applicationStopSeconds,
-        temporaryCompetition ? competingFlowsStopSeconds : applicationStopSeconds,
-        temporaryCompetition ? competingFlowsStopSeconds : applicationStopSeconds};
+    std::vector<double> senderStartTimes(activeFlowCount, applicationStartSeconds);
+    std::vector<double> senderStopTimes(activeFlowCount, applicationStopSeconds);
+    if (temporaryCompetition)
+    {
+        for (uint32_t index = 1; index < activeFlowCount; ++index)
+        {
+            senderStartTimes[index] = competingFlowsStartSeconds;
+            senderStopTimes[index] = competingFlowsStopSeconds;
+        }
+    }
     ApplicationContainer senderApplications;
     ApplicationContainer sinkApplications;
     std::vector<Ptr<PacketSink>> packetSinks;
 
+    const bool udpWorkload = trafficModel == "udp";
     for (uint32_t index = 0; index < activeFlowCount; ++index)
     {
         Address sinkAddress(
             InetSocketAddress(Ipv4Address::GetAny(), destinationPorts[index]));
-        PacketSinkHelper sinkHelper("ns3::TcpSocketFactory", sinkAddress);
+        PacketSinkHelper sinkHelper(udpWorkload ? "ns3::UdpSocketFactory"
+                                                : "ns3::TcpSocketFactory",
+                                    sinkAddress);
         ApplicationContainer sinkApplication = sinkHelper.Install(destinationNodes.Get(index));
         sinkApplication.Start(Seconds(sinkStartSeconds));
         sinkApplication.Stop(Seconds(simulationDurationSeconds));
@@ -1016,10 +1169,26 @@ main(int argc, char* argv[])
 
         Address remoteAddress(
             InetSocketAddress(destinationAddresses[index], destinationPorts[index]));
-        BulkSendHelper sender("ns3::TcpSocketFactory", remoteAddress);
-        sender.SetAttribute("SendSize", UintegerValue(packetSizeBytes));
-        sender.SetAttribute("MaxBytes", UintegerValue(maximumBytes));
-        ApplicationContainer senderApplication = sender.Install(sourceNodes.Get(index));
+        ApplicationContainer senderApplication;
+        if (udpWorkload)
+        {
+            OnOffHelper sender("ns3::UdpSocketFactory", remoteAddress);
+            sender.SetAttribute("DataRate", DataRateValue(DataRate(offeredRate)));
+            sender.SetAttribute("PacketSize", UintegerValue(packetSizeBytes));
+            sender.SetAttribute("OnTime",
+                                StringValue("ns3::ConstantRandomVariable[Constant=1]"));
+            sender.SetAttribute("OffTime",
+                                StringValue("ns3::ConstantRandomVariable[Constant=0]"));
+            sender.SetAttribute("MaxBytes", UintegerValue(maximumBytes));
+            senderApplication = sender.Install(sourceNodes.Get(index));
+        }
+        else
+        {
+            BulkSendHelper sender("ns3::TcpSocketFactory", remoteAddress);
+            sender.SetAttribute("SendSize", UintegerValue(packetSizeBytes));
+            sender.SetAttribute("MaxBytes", UintegerValue(maximumBytes));
+            senderApplication = sender.Install(sourceNodes.Get(index));
+        }
         senderApplication.Start(Seconds(senderStartTimes[index]));
         senderApplication.Stop(Seconds(senderStopTimes[index]));
         senderApplications.Add(senderApplication);
@@ -1043,8 +1212,18 @@ main(int argc, char* argv[])
 
     MeasurementCollector measurements(outputDirectory,
                                      packetSinks,
-                                     {"flow1", "flow2", "flow3"},
+                                     [&activeFlowCount]() {
+                                         std::vector<std::string> ids;
+                                         for (uint32_t index = 0; index < activeFlowCount; ++index)
+                                         {
+                                             ids.push_back("flow" + std::to_string(index + 1));
+                                         }
+                                         return ids;
+                                     }(),
                                      bottleneckQueues,
+                                     dqaQueueDiscs,
+                                     hybridPerFlowState ? hybridDedicatedResources + 1
+                                                        : DQA_QUEUE_CLASS_COUNT,
                                      simulationDurationSeconds,
                                      measurementIntervalSeconds,
                                      queueLimitPackets);
@@ -1061,24 +1240,23 @@ main(int argc, char* argv[])
 
     std::unique_ptr<DqaController> dqaController;
     std::unique_ptr<HybridStateManager> hybridStateManager;
-    if (dynamicQueueAssignment)
+    if (dynamicQueueAssignment || fixedQueueAssignment)
     {
-        const std::vector<uint16_t> activePorts(destinationPorts,
-                                                destinationPorts + activeFlowCount);
+        const std::vector<uint16_t> activePorts = destinationPorts;
         if (hybridPerFlowState)
         {
             hybridStateManager = std::make_unique<HybridStateManager>(
                 outputDirectory,
                 dqaQueueDiscs,
                 activePorts,
-                std::vector<double>(senderStartTimes, senderStartTimes + activeFlowCount),
-                std::vector<double>(senderStopTimes, senderStopTimes + activeFlowCount),
+                senderStartTimes,
+                senderStopTimes,
                 hybridDedicatedResources,
                 hybridDedicatedResources,
                 simulationDurationSeconds);
             hybridStateManager->Start();
         }
-        else
+        else if (dynamicQueueAssignment)
         {
             dqaController = std::make_unique<DqaController>(outputDirectory,
                                                              dqaQueueDiscs,
@@ -1089,8 +1267,17 @@ main(int argc, char* argv[])
         }
         for (uint32_t direction = 0; direction < dqaQueueDiscs.size(); ++direction)
         {
+            NS_ABORT_MSG_UNLESS(
+                dqaQueueDiscs[direction]->TraceConnectWithoutContext(
+                    "Drop",
+                    direction == 0
+                        ? MakeCallback(&MeasurementCollector::RecordQueueDiscLeftToRightDrop,
+                                       &measurements)
+                        : MakeCallback(&MeasurementCollector::RecordQueueDiscRightToLeftDrop,
+                                       &measurements)),
+                "Unable to connect root QueueDisc drop trace");
             const uint32_t queueClassCount =
-                hybridPerFlowState ? HYBRID_QUEUE_CLASS_COUNT : DQA_QUEUE_CLASS_COUNT;
+                hybridPerFlowState ? hybridDedicatedResources + 1 : DQA_QUEUE_CLASS_COUNT;
             for (uint32_t queueIndex = 0; queueIndex < queueClassCount; ++queueIndex)
             {
                 dqaQueueDiscs[direction]->GetInternalQueue(queueIndex)
@@ -1125,8 +1312,8 @@ main(int argc, char* argv[])
                         "No application bytes were received by any packet sink");
 
     measurements.WriteFlowStatistics(flowMonitorHelper, flowMonitor,
-                                     std::vector<uint16_t>(destinationPorts,
-                                                           destinationPorts + activeFlowCount));
+                                     destinationPorts,
+                                     udpWorkload ? 17 : 6);
     measurements.WriteDropRecords();
 
     const double commonIntervalSeconds = temporaryCompetition
@@ -1163,23 +1350,35 @@ main(int argc, char* argv[])
                  << "  \"random_seed\": " << randomSeed << ",\n"
                  << "  \"run_number\": " << runNumber << ",\n"
                  << "  \"tcp_variant\": \"" << tcpVariant << "\",\n"
+                 << "  \"traffic_model\": \"" << trafficModel << "\",\n"
+                 << "  \"offered_rate_per_flow\": \"" << offeredRate << "\",\n"
                  << "  \"bottleneck_data_rate\": \"" << bottleneckDataRate << "\",\n"
                  << "  \"bottleneck_delay\": \"" << bottleneckDelay << "\",\n"
                  << "  \"queue_limit_packets\": " << queueLimitPackets << ",\n"
                  << "  \"dynamic_queue_assignment\": "
                  << (dynamicQueueAssignment ? "true" : "false") << ",\n"
-                 << "  \"dqa_queue_class_count\": " << DQA_QUEUE_CLASS_COUNT << ",\n"
+                 << "  \"fixed_queue_assignment\": "
+                 << (fixedQueueAssignment ? "true" : "false") << ",\n"
+                 << "  \"dqa_queue_class_count\": "
+                 << (hybridPerFlowState ? hybridDedicatedResources + 1
+                                         : DQA_QUEUE_CLASS_COUNT)
+                 << ",\n"
                  << "  \"hybrid_per_flow_state\": "
                  << (hybridPerFlowState ? "true" : "false") << ",\n"
                  << "  \"hybrid_dedicated_resources\": " << hybridDedicatedResources << ",\n"
                  << "  \"hybrid_fallback_queue_class\": "
                  << (hybridPerFlowState ? hybridDedicatedResources
-                                        : HYBRID_QUEUE_CLASS_COUNT - 1)
+                                        : DQA_QUEUE_CLASS_COUNT - 1)
                  << ",\n"
                  << "  \"dqa_control_interval_s\": " << DQA_CONTROL_INTERVAL_SECONDS << ",\n"
                  << "  \"dqa_switch_threshold\": " << DQA_SWITCH_THRESHOLD << ",\n"
                  << "  \"dqa_switch_cooldown_s\": " << DQA_SWITCH_COOLDOWN_SECONDS << ",\n"
                  << "  \"measurement_interval_s\": " << measurementIntervalSeconds << ",\n"
+                 << "  \"physical_queue_object\": \"PointToPointNetDevice::Queue\",\n"
+                 << "  \"queuedisc_aggregate_object\": \"QueueDisc::RootAggregate\",\n"
+                 << "  \"logical_queue_object\": \"QueueDisc::InternalQueue\",\n"
+                 << "  \"physical_drop_trace\": \"PointToPointNetDevice::Queue/Drop\",\n"
+                 << "  \"internal_drop_trace\": \"QueueDisc::InternalQueue/Drop\",\n"
                  << "  \"output_directory\": \"" << outputDirectory << "\",\n"
                  << "  \"flow_monitor_layer\": \"IPv4\",\n"
                  << "  \"throughput_timestamp\": \"interval_end\",\n"
@@ -1189,10 +1388,18 @@ main(int argc, char* argv[])
                          : "null")
                  << ",\n"
                  << "  \"fairness_definition\": \"application bytes received divided by common sender interval; null for temporary competition\",\n"
-                 << "  \"flow_start_times_s\": [" << senderStartTimes[0] << ","
-                 << senderStartTimes[1] << "," << senderStartTimes[2] << "],\n"
-                 << "  \"flow_stop_times_s\": [" << senderStopTimes[0] << ","
-                 << senderStopTimes[1] << "," << senderStopTimes[2] << "],\n"
+                 << "  \"flow_start_times_s\": [";
+        for (uint32_t index = 0; index < activeFlowCount; ++index)
+        {
+            metadata << (index == 0 ? "" : ",") << senderStartTimes[index];
+        }
+        metadata << "],\n"
+                 << "  \"flow_stop_times_s\": [";
+        for (uint32_t index = 0; index < activeFlowCount; ++index)
+        {
+            metadata << (index == 0 ? "" : ",") << senderStopTimes[index];
+        }
+        metadata << "],\n"
                  << "  \"run_identifier\": \""
                  << (hybridPerFlowState ? "hybrid"
                                          : dynamicQueueAssignment ? "dqa" : "baseline")

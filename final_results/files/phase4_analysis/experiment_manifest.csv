@@ -1,0 +1,12 @@
+experiment_id,experiment_type,active_flow_count,bottleneck_data_rate,queue_limit_packets,random_seed,run_number,output_directory,run_exit_status,temporary_traffic_check
+capacity_1Mbps,capacity,3,1Mbps,100,1,1,results/experiments/capacity/capacity_1Mbps,0,not_applicable
+capacity_2Mbps,capacity,3,2Mbps,100,1,1,results/experiments/capacity/capacity_2Mbps,0,not_applicable
+capacity_5Mbps,capacity,3,5Mbps,100,1,1,results/experiments/capacity/capacity_5Mbps,0,not_applicable
+capacity_10Mbps,capacity,3,10Mbps,100,1,1,results/experiments/capacity/capacity_10Mbps,0,not_applicable
+flow_count_1_flow,flow_count,1,5Mbps,100,1,1,results/experiments/flow_count/flow_count_1_flow,0,not_applicable
+flow_count_2_flows,flow_count,2,5Mbps,100,1,1,results/experiments/flow_count/flow_count_2_flows,0,not_applicable
+flow_count_3_flows,flow_count,3,5Mbps,100,1,1,results/experiments/flow_count/flow_count_3_flows,0,not_applicable
+queue_10p,queue_capacity,3,5Mbps,10,1,1,results/experiments/queue_capacity/queue_10p,0,not_applicable
+queue_25p,queue_capacity,3,5Mbps,25,1,1,results/experiments/queue_capacity/queue_25p,0,not_applicable
+queue_100p,queue_capacity,3,5Mbps,100,1,1,results/experiments/queue_capacity/queue_100p,0,not_applicable
+temporary_competition,temporary_competition,3,5Mbps,100,1,1,results/experiments/temporary_competition/temporary_competition,0,passed
