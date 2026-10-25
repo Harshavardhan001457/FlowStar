@@ -1,0 +1,4 @@
+configuration,observations,mean_aggregate_throughput_bps,stddev_aggregate_throughput_bps,interpretation
+baseline,2,4675726.222222222,0.0,"exploratory; repeated runs are deterministic checks, not independent stochastic samples"
+dqa,2,4701777.777777778,0.0,"exploratory; repeated runs are deterministic checks, not independent stochastic samples"
+hybrid,2,4701777.777777778,0.0,"exploratory; repeated runs are deterministic checks, not independent stochastic samples"

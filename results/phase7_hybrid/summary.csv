@@ -1,0 +1,16 @@
+scenario,flow_id,application_rx_bytes,packet_delivery_ratio,lost_packets,dynamic_queue_assignment,hybrid_per_flow_state,dedicated_resources,state_rows,promotions,exit_status
+baseline,flow1,3076000,0.997569,14,False,False,2,0,0,0
+baseline,flow2,4459000,0.998441,13,False,False,2,0,0,0
+baseline,flow3,2985384,0.996068,10,False,False,2,0,0,0
+dqa_only,flow1,4639000,0.995058,43,True,False,2,0,0,0
+dqa_only,flow2,2681000,0.993056,35,True,False,2,0,0,0
+dqa_only,flow3,3259000,0.993468,40,True,False,2,0,0,0
+hybrid_sufficient,flow1,4918000,0.995553,41,True,True,3,18,0,0
+hybrid_sufficient,flow2,3006000,0.992396,43,True,True,3,18,0,0
+hybrid_sufficient,flow3,2655000,0.992591,37,True,True,3,18,0,0
+hybrid_partial,flow1,4918000,0.995553,41,True,True,2,20,2,0
+hybrid_partial,flow2,3006000,0.992396,43,True,True,2,20,2,0
+hybrid_partial,flow3,2655000,0.992632,37,True,True,2,20,2,0
+hybrid_exhausted,flow1,2236000,0.989571,44,True,True,1,22,4,0
+hybrid_exhausted,flow2,3677000,0.994367,39,True,True,1,22,4,0
+hybrid_exhausted,flow3,4665000,0.995778,37,True,True,1,22,4,0

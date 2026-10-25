@@ -1,0 +1,4 @@
+[0/2] Re-checking globbed directories...
+ninja: no work to do.
+Finished executing the following commands:
+/usr/bin/cmake --build /home/harsha/Projects/ns3/ns-3.48/cmake-cache -j 15 --target scratch_flowstar-baseline

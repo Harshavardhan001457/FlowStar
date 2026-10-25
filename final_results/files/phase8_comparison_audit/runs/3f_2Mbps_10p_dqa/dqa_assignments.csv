@@ -1,0 +1,13 @@
+time_s,direction,destination_port,old_queue_class,new_queue_class,busy_occupancy_packets,quiet_occupancy_packets,threshold_packets,reason
+0,left_to_right,5001,,0,,,,initial
+0,left_to_right,5002,,1,,,,initial
+0,left_to_right,5003,,0,,,,initial
+0,right_to_left,5001,,0,,,,initial
+0,right_to_left,5002,,1,,,,initial
+0,right_to_left,5003,,0,,,,initial
+4,left_to_right,5003,0,1,6,4,2,occupancy_difference
+6,left_to_right,5003,1,0,6,4,2,occupancy_difference
+8.4,left_to_right,5001,0,1,6,4,2,occupancy_difference
+10.4,left_to_right,5002,1,0,2,0,2,occupancy_difference
+11.4,left_to_right,5003,0,1,5,3,2,occupancy_difference
+15.8,left_to_right,5001,1,0,6,4,2,occupancy_difference

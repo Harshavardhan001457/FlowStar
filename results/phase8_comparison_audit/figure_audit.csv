@@ -1,0 +1,6 @@
+figure,input_file,selected_rows,selected_columns,unit_conversion,aggregation,scenario_ids,matched_configurations
+aggregate_throughput.png,results/phase8_debugged/summary.csv,all successful per-flow rows,aggregate_throughput_bps,"none; stored bit/s, displayed as bit/s",mean over per-flow rows grouped by configuration,"original_control,C1_control,C2,C3,C4,H_*",no; hybrid includes four hybrid-only H_* scenarios
+average_delay.png,results/phase8_debugged/summary.csv,all successful per-flow rows,average_delay_s,none; seconds,mean over per-flow rows grouped by configuration,"original_control,C1_control,C2,C3,C4,H_*",no; mixed scenario set and unequal flow counts
+queue_occupancy.png,results/phase8_debugged/summary.csv,all successful per-flow rows,maximum_queue_occupancy_packets,none; packets,mean over duplicated per-flow run rows,"original_control,C1_control,C2,C3,C4,H_*",no; queue layer also differed in the source implementation
+queue_drops.png,results/phase8_debugged/summary.csv,all successful per-flow rows,actual_queue_drop_events,none; events,mean over duplicated per-flow run rows,"original_control,C1_control,C2,C3,C4,H_*",no
+fairness.png,results/phase8_debugged/summary.csv,all successful per-flow rows,jain_fairness,none; index,mean over duplicated per-flow run rows,"original_control,C1_control,C2,C3,C4,H_*",no

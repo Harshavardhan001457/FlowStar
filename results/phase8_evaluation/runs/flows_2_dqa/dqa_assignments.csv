@@ -1,0 +1,5 @@
+time_s,direction,destination_port,queue_class,event
+0,left_to_right,5001,0,initial
+0,left_to_right,5002,1,initial
+0,right_to_left,5001,0,initial
+0,right_to_left,5002,1,initial
